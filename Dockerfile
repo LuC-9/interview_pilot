@@ -30,8 +30,8 @@ COPY . .
 # Build application
 RUN npm run build
 
-# Remove development dependencies
-RUN npm prune --omit=dev
+# Keep dev dependencies for runtime seeding (tsx, degit needed for init)
+# Note: tsx is used for seeding the database on first startup if needed
 
 
 # Final stage for app image

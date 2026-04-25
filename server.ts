@@ -30,6 +30,32 @@ if (process.env.DB_PATH && !fs.existsSync(process.env.DB_PATH)) {
 
 const db = new Database(dbPath);
 
+// Check if database needs seeding (on first startup or fresh volume)
+async function seedDatabaseIfEmpty() {
+  try {
+    const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all();
+    
+    if (tables.length === 0) {
+      console.log('Database is empty. Seeding data...');
+      
+      // Download the company questions data
+      console.log('Downloading LeetCode company questions data...');
+      await execPromise('npx -y degit snehasishroy/leetcode-companywise-interview-questions lc-company --force');
+      
+      // Run the seed script
+      console.log('Running seed script...');
+      await execPromise('npx tsx seed.ts');
+      
+      console.log('Database seeding completed successfully!');
+    } else {
+      console.log('Database already seeded, skipping initialization.');
+    }
+  } catch (err) {
+    console.error('Error during database seeding:', err);
+    throw err;
+  }
+}
+
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '50mb' }));
@@ -66,23 +92,39 @@ async function startServer() {
 
     const fallbackAnalyze = () => {
       const lowerText = resumeText.toLowerCase();
-      const allSkills = ['react', 'node', 'typescript', 'kubernetes', 'aws', 'docker', 'python', 'java', 'sql', 'nosql', 'system design', 'redis', 'kafka', 'graphql', 'rest', 'go', 'ci/cd', 'terraform'];
+      // Expanded skills list with better coverage
+      const allSkills = [
+        'react', 'vue', 'angular', 'nodejs', 'node', 'express', 'typescript', 'javascript',
+        'kubernetes', 'docker', 'aws', 'gcp', 'azure', 'cloud', 
+        'python', 'java', 'go', 'rust', 'c++', 'c#',
+        'sql', 'postgres', 'mongodb', 'nosql', 'redis', 'elasticsearch',
+        'system design', 'microservices', 'rest', 'graphql', 'grpc',
+        'kafka', 'rabbitmq', 'ci/cd', 'jenkins', 'gitlab', 'github', 'terraform', 'ansible',
+        'linux', 'unix', 'shell', 'bash', 'git', 'agile', 'scrum'
+      ];
       
       const matched = allSkills.filter(skill => {
-        const regex = new RegExp(`\\b${skill.replace('/', '\\/')}\\b`, 'i');
+        // Handle special characters better
+        const escapedSkill = skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`\\b${escapedSkill}\\b`, 'i');
         return regex.test(lowerText);
       });
-      const missing = allSkills.filter(skill => {
-        const regex = new RegExp(`\\b${skill.replace('/', '\\/')}\\b`, 'i');
-        return !regex.test(lowerText);
-      }).slice(0, 5); // Just show top 5 missing
       
-      const rawScore = Math.min(100, Math.max(30, Math.floor((matched.length / 10) * 100)));
+      const missing = allSkills.filter(skill => {
+        const escapedSkill = skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`\\b${escapedSkill}\\b`, 'i');
+        return !regex.test(lowerText);
+      }).slice(0, 8); // Show top 8 missing
+      
+      // Better scoring calculation (out of total skills, not fixed 10)
+      const rawScore = Math.min(100, Math.max(20, Math.floor((matched.length / allSkills.length) * 100)));
       
       let feedback = "";
-      if (rawScore > 80) feedback = "Excellent alignment with standard platform/full-stack roles. You cover most core technical pillars.";
-      else if (rawScore > 50) feedback = "Solid foundation, but expanding into missing technical pillars (like infrastructure or cloud) would boost alignment.";
-      else feedback = "Your resume appears to be missing several key platform/full-stack keywords. Consider explicitly adding relevant skills if you have them.";
+      if (rawScore > 85) feedback = "Excellent! Strong technical foundation across multiple domains. Ready for senior/staff-level platform engineering roles.";
+      else if (rawScore > 70) feedback = "Strong technical profile. Consider deepening expertise in cloud infrastructure and DevOps to strengthen platform engineering alignment.";
+      else if (rawScore > 50) feedback = "Solid foundation. Recommend building more experience with Kubernetes, cloud platforms (AWS/GCP/Azure), and infrastructure-as-code tools.";
+      else if (rawScore > 30) feedback = "Good start. Focus on adding cloud platform experience, containerization (Docker/K8s), and DevOps tooling to improve platform engineering fit.";
+      else feedback = "Foundation exists. Build expertise in: Kubernetes, cloud platforms, infrastructure automation, system design, and distributed systems.";
 
       return { score: rawScore, matched, missing, feedback };
     };
@@ -100,13 +142,29 @@ async function startServer() {
           responseMimeType: "application/json",
         }
       });
-      const prompt = `Analyze this resume for alignment with full-stack engineering core pillars (React, Node, Typescript, Kubernetes, AWS, etc.). 
-      Return a JSON object with: 
-      - "score" (number 1-100)
-      - "matched" (array of strings)
-      - "missing" (array of strings)
-      - "feedback" (string)
-      Resume text: ${resumeText}`;
+      const prompt = `Analyze this resume for alignment with platform engineering and full-stack roles. 
+
+Evaluate these key areas:
+1. Programming languages (especially: Python, Go, Rust, TypeScript, Java)
+2. Cloud platforms (AWS, GCP, Azure)
+3. Container & orchestration (Docker, Kubernetes)
+4. Infrastructure as code (Terraform, Ansible, CloudFormation)
+5. CI/CD pipelines (Jenkins, GitLab CI, GitHub Actions)
+6. Distributed systems & messaging (Kafka, RabbitMQ, gRPC)
+7. Databases (SQL, NoSQL, caching)
+8. Frontend (React, Vue, etc.)
+9. DevOps & monitoring (Prometheus, ELK, DataDog)
+10. System design experience
+
+Return a JSON object with EXACTLY these fields:
+{
+  "score": <number 1-100 based on overall platform engineering fit>,
+  "matched": [<array of up to 15 skills/areas found in resume>],
+  "missing": [<array of up to 10 most important missing skills for platform engineer>],
+  "feedback": "<specific actionable feedback about career positioning for platform engineering>"
+}
+
+Resume text: ${resumeText}`;
 
       const result = await model.generateContent(prompt);
       const response = await result.response;
@@ -288,4 +346,13 @@ async function startServer() {
   });
 }
 
-startServer();
+// Initialize and start the server
+(async () => {
+  try {
+    await seedDatabaseIfEmpty();
+    await startServer();
+  } catch (err) {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  }
+})();

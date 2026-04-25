@@ -26,6 +26,29 @@ if (process.env.DB_PATH && !fs.existsSync(process.env.DB_PATH)) {
     }
 }
 const db = new Database(dbPath);
+// Check if database needs seeding (on first startup or fresh volume)
+async function seedDatabaseIfEmpty() {
+    try {
+        const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all();
+        if (tables.length === 0) {
+            console.log('Database is empty. Seeding data...');
+            // Download the company questions data
+            console.log('Downloading LeetCode company questions data...');
+            await execPromise('npx -y degit snehasishroy/leetcode-companywise-interview-questions lc-company --force');
+            // Run the seed script
+            console.log('Running seed script...');
+            await execPromise('npx tsx seed.ts');
+            console.log('Database seeding completed successfully!');
+        }
+        else {
+            console.log('Database already seeded, skipping initialization.');
+        }
+    }
+    catch (err) {
+        console.error('Error during database seeding:', err);
+        throw err;
+    }
+}
 async function startServer() {
     const app = express();
     app.use(express.json({ limit: '50mb' }));
@@ -267,4 +290,14 @@ async function startServer() {
         console.log(`Server running on http://localhost:${PORT}`);
     });
 }
-startServer();
+// Initialize and start the server
+(async () => {
+    try {
+        await seedDatabaseIfEmpty();
+        await startServer();
+    }
+    catch (err) {
+        console.error('Failed to start server:', err);
+        process.exit(1);
+    }
+})();
