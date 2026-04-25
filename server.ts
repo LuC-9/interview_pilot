@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
 import Database from 'better-sqlite3';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { exec } from 'child_process';
@@ -9,7 +10,25 @@ import util from 'util';
 
 const execPromise = util.promisify(exec);
 
-const db = new Database('database.db', { readonly: true });
+const dbPath = process.env.DB_PATH || 'database.db';
+
+// If deploying to a platform like Fly.io with a volume, the volume might be empty.
+// We can copy the local seeded 'database.db' to the volume if it doesn't exist yet.
+if (process.env.DB_PATH && !fs.existsSync(process.env.DB_PATH)) {
+  const localDbPath = path.join(process.cwd(), 'database.db');
+  if (fs.existsSync(localDbPath)) {
+    console.log(`Copying local seeded database to volume path: ${process.env.DB_PATH}`);
+    try {
+      // Ensure the directory exists
+      fs.mkdirSync(path.dirname(process.env.DB_PATH), { recursive: true });
+      fs.copyFileSync(localDbPath, process.env.DB_PATH);
+    } catch (err) {
+      console.error("Failed to copy database to volume:", err);
+    }
+  }
+}
+
+const db = new Database(dbPath);
 
 async function startServer() {
   const app = express();

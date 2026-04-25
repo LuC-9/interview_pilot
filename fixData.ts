@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3';
 import { dsaQuestions } from './src/dsaData';
 
-const db = new Database('database.db');
+const dbPath = process.env.DB_PATH || 'database.db';
+const db = new Database(dbPath);
 db.exec(`
   CREATE TABLE IF NOT EXISTS questions (
     id INTEGER PRIMARY KEY,

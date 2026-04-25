@@ -3,7 +3,8 @@ import path from 'path';
 import Database from 'better-sqlite3';
 import { parse } from 'csv-parse/sync';
 
-const db = new Database('database.db');
+const dbPath = process.env.DB_PATH || 'database.db';
+const db = new Database(dbPath);
 
 // Initialize schema
 db.exec(`
